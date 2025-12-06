@@ -17,8 +17,12 @@ WORKDIR /app/stable-diffusion.cpp
 RUN mkdir build
 WORKDIR /app/stable-diffusion.cpp/build
 
+
+# 75 = RTX 20-series (Turing)
+# 86 = RTX 30-series / A4000 / A5000 / A6000 (Ampere)
+# 89 = RTX 40-series / RTX 6000 Ada / RTX 4000 SFF Ada (Ada Lovelace)
 # SD_CUBLAS=ON
-RUN cmake .. -DSD_CUBLAS=ON -DCMAKE_BUILD_TYPE=Release && \
+RUN cmake .. -DSD_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="75;86;89" && \
     cmake --build . --config Release -- -j$(nproc)
 
 # 6. Install the binary globally
