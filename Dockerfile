@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-RUN git clone https://github.com/leejet/stable-diffusion.cpp
+RUN git clone --recursive https://github.com/leejet/stable-diffusion.cpp
 
 WORKDIR /app/stable-diffusion.cpp
 RUN mkdir build
