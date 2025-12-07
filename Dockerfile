@@ -62,7 +62,7 @@ CMD ["/start.sh"]
 # ==========================================
 FROM base_runtime AS serverless
 # Install RunPod SDK
-RUN pip3 install --no-cache-dir runpod huggingface_hub
+RUN pip3 install --no-cache-dir runpod huggingface_hub cryptography
 
 WORKDIR /
 
