@@ -3,6 +3,13 @@ import subprocess
 import os
 import base64
 import uuid
+from cryptography.fernet import Fernet
+
+# --- CONFIGURATION ---
+# In production, pass this via RunPod Env Variables. For now, hardcoding or reading env.
+# MUST match the key generated in Step 0
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "YOUR_GENERATED_KEY_HERE").encode()
+cipher_suite = Fernet(ENCRYPTION_KEY)
 
 # Paths to the baked-in models
 BINARY_PATH = "/usr/local/bin/sd"
@@ -15,74 +22,71 @@ OUTPUT_DIR = "/tmp"
 def handler(job):
     job_input = job['input']
     
-    # 1. Parse Inputs (Set defaults for Z-Image Turbo)
-    prompt = job_input.get("prompt", "castle")
-    cfg_scale = str(job_input.get("cfg_scale", 1.0)) # Default 1.0 for Turbo
+    # --- 1. DECRYPT THE PROMPT ---
+    encrypted_prompt = job_input.get("encrypted_prompt")
+    
+    if not encrypted_prompt:
+        return {"error": "No encrypted_prompt provided"}
+
+    try:
+        # Decrypt: bytes -> bytes -> decode to string
+        prompt = cipher_suite.decrypt(encrypted_prompt.encode()).decode()
+        print("Prompt decrypted successfully") # Don't print the actual prompt to logs!
+    except Exception as e:
+        return {"error": "Failed to decrypt prompt", "details": str(e)}
+
+    # Standard params
+    cfg_scale = str(job_input.get("cfg_scale", 1.0))
     width = str(job_input.get("width", 512))
     height = str(job_input.get("height", 1024))
-    steps = str(job_input.get("steps", 10)) # Turbo needs fewer steps
-    seed = str(job_input.get("seed", -1)) # -1 = random
+    steps = str(job_input.get("steps", 8))
+    seed = str(job_input.get("seed", -1))
     
-    # Generate unique output filename
     unique_id = str(uuid.uuid4())
     output_filename = f"{unique_id}.png"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
-    # 2. Construct the Command
-    # sd --diffusion-model ... --vae ... --llm ... -p ... --cfg-scale ... --diffusion-fa ...
     command = [
         BINARY_PATH,
         "--diffusion-model", DIFFUSION_MODEL,
         "--vae", VAE_MODEL,
         "--llm", LLM_MODEL,
-        "-p", prompt,
+        "-p", prompt,  # Using the decrypted prompt
         "--cfg-scale", cfg_scale,
         "--steps", steps,
         "-H", height,
         "-W", width,
-        "--rng", "cuda",       # Force GPU RNG
-        "--diffusion-fa",      # Flash Attention (Specific to your request)
+        "--rng", "cuda",
+        "--diffusion-fa",
         "-s", seed,
         "-o", output_path
     ]
 
-    # print(f"Running command: {' '.join(command)}")
-
     try:
-        # Execute binary
-        result = subprocess.run(
-            command, 
-            check=True, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE
-        )
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # 3. Process Output
         if os.path.exists(output_path):
             with open(output_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                raw_image_bytes = image_file.read()
             
-            # Cleanup
+            # --- 2. ENCRYPT THE IMAGE ---
+            # Instead of standard base64, we encrypt the raw bytes first
+            encrypted_image_bytes = cipher_suite.encrypt(raw_image_bytes)
+            
+            # Convert encrypted bytes to string for JSON transport
+            encrypted_image_str = encrypted_image_bytes.decode('utf-8')
+            
             os.remove(output_path)
 
             return {
                 "status": "success",
-                "image": encoded_string
+                "encrypted_image": encrypted_image_str
             }
         else:
-            print(f"STDOUT: {result.stdout.decode()}")
-            print(f"STDERR: {result.stderr.decode()}")
-            return {"error": "Output file was not generated. Check logs."}
+            return {"error": "Output file missing"}
 
-    except subprocess.CalledProcessError as e:
-        return {
-            "error": "Generation failed", 
-            "details": e.stderr.decode(),
-            "stdout": e.stdout.decode()
-        }
     except Exception as e:
         return {"error": str(e)}
 
-# Start Worker
 if __name__ == '__main__':
     runpod.serverless.start({"handler": handler})
