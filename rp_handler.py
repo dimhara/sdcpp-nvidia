@@ -46,7 +46,7 @@ def handler(job):
         "-o", output_path
     ]
 
-    print(f"Running command: {' '.join(command)}")
+    # print(f"Running command: {' '.join(command)}")
 
     try:
         # Execute binary
